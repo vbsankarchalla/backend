@@ -6,6 +6,18 @@ async function getAllSongs() {
   return result.recordset;
 }
 
+async function deleteDuplicateSongs() {
+  const pool = await poolPromise;
+  await pool.request().query(`
+    WITH CTE AS (
+      SELECT *, 
+             ROW_NUMBER() OVER (PARTITION BY SongID ORDER BY DateAdded DESC) AS rn
+      FROM Songs
+    )
+    DELETE FROM CTE WHERE rn > 1;
+  `);
+}
+
 async function insertOrUpdateSong(song) {
   const pool = await poolPromise;
   await pool.request()
@@ -31,5 +43,6 @@ async function insertOrUpdateSong(song) {
 
 module.exports = {
   getAllSongs,
-  insertOrUpdateSong
+  insertOrUpdateSong,
+  deleteDuplicateSongs
 };
