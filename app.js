@@ -1,7 +1,7 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const syncRoutes = require('./routes/syncRoutes');
-require('dotenv').config();
+const express = require("express");
+const bodyParser = require("body-parser");
+const syncRoutes = require("./routes/syncRoutes");
+require("dotenv").config();
 
 const app = express();
 
@@ -9,7 +9,7 @@ const app = express();
 app.use(bodyParser.json());
 
 // Routes
-app.use('/api/sync', syncRoutes);
+app.use("/api/sync", syncRoutes);
 
 // Start server
 const PORT = process.env.PORT || 5000;
