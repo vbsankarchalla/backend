@@ -41,7 +41,7 @@ async function insertOrUpdateSong(song) {
     `);
 }
 
-module.exports = {
+export {
   getAllSongs,
   insertOrUpdateSong,
   deleteDuplicateSongs

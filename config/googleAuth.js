@@ -8,4 +8,4 @@ const auth = new google.auth.JWT(
   ['https://www.googleapis.com/auth/spreadsheets']
 );
 
-module.exports = auth;
+export { auth };

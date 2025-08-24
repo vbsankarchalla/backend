@@ -1,49 +1,49 @@
-import "dotenv/config";
 import { google } from "googleapis";
 import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+import fs from "fs";
+
+export async function getSheetClient() {
+  const authClient = await auth.getClient();
+  const sheets = google.sheets({ version: "v4", auth: authClient });
+  console.log("✅ Google Sheets client created using service account");
+  return sheets;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const keyFile = path.join(__dirname, "../credentials.json");
-
 const auth = new google.auth.GoogleAuth({
   keyFile,
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"]
 });
 
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-const SHEET_NAME = process.env.SHEET_NAME || "Songs";
+let SPREADSHEET_ID;
+let SHEET_NAME = "Songs";
 
-console.log("✅ Loaded spreadsheet ID from .env:", SPREADSHEET_ID);
+  export function setSpreadsheetEnv(id, name = "Songs") {
+    SPREADSHEET_ID = id;
+    SHEET_NAME = name;
+  }
 
-export async function getSheetData() {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: "v4", auth: client });
+console.log("✅ GSS ENV LOADED:", SPREADSHEET_ID, SHEET_NAME);
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A2:G`,
-  });
+// export async function getSheetData() {
+//   const authClient = await auth.getClient();
+//   const sheets = google.sheets({ version: "v4", auth: authClient });
 
-  return res.data.values || [];
-}
+//   console.log("✅ Google Sheets client created using service account");
+
+//   return sheets;
+// }
 
 export async function writeSheetData(sqlRows) {
   const client = await auth.getClient();
-  const sheets = google.sheets({ version: "v4", auth: client });
+  const sheets = google.sheets({ version: 'v4', auth: client });
 
-  const headers = [
-    "SongID",
-    "Title",
-    "Artist",
-    "Album",
-    "PlaylistName",
-    "IsDownloaded",
-    "DateAdded",
-  ];
+  const headers = ['SongID', 'Title', 'Artist', 'Album', 'PlaylistName', 'IsDownloaded', 'DateAdded'];
 
   // Step 1: Read existing data (including header)
   const existingDataRes = await sheets.spreadsheets.values.get({
@@ -54,50 +54,58 @@ export async function writeSheetData(sqlRows) {
   const existingData = existingDataRes.data.values || [];
   const [existingHeader, ...existingRows] = existingData;
 
-  // ✅ Step 2: Filter out rows with empty SongIDs
+  // Step 2: Convert existing rows to Map<SongID, row>
   const existingMap = new Map();
-  existingRows.forEach((row) => {
-    const songId = row[0]?.trim();
+  existingRows.forEach(row => {
+    const songId = row[0];
     if (songId) existingMap.set(songId, row);
   });
 
-  // ✅ Step 3: Process SQL rows, skip blank SongIDs
-  for (const newRow of sqlRows) {
-    const newId = newRow[0]?.toString().trim();
-    if (!newId) continue;
+  // Step 3: Merge sqlRows based on SongID with logging
+  let insertedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
 
+  for (const newRow of sqlRows) {
+    const newId = newRow[0];
     const existingRow = existingMap.get(newId);
 
     if (!existingRow) {
-      // New row to insert
       existingMap.set(newId, newRow);
+      insertedCount++;
     } else {
-      // Check if row is different
-      const isDifferent = newRow.some(
-        (val, idx) => val !== (existingRow[idx] || "")
-      );
+      const isDifferent = newRow.some((val, idx) => val !== (existingRow[idx] || ''));
       if (isDifferent) {
         existingMap.set(newId, newRow);
+        updatedCount++;
+      } else {
+        skippedCount++;
       }
     }
   }
 
-  // Step 4: Prepare values and write back
-  const mergedValues = Array.from(existingMap.values());
+  // Step 4: Filter out empty or invalid rows and sort by SongID
+  const mergedValues = Array.from(existingMap.values())
+    .filter(row => row && row.length > 0 && row[0])
+    .sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
 
+  // Step 5: Write data back to sheet
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
     range: `${SHEET_NAME}!A1`,
-    valueInputOption: "RAW",
+    valueInputOption: 'RAW',
     resource: {
       values: [headers, ...mergedValues],
     },
   });
 
-  console.log(
-    "✅ Synced: only unique and updated rows, no duplicates or blank inserts."
-  );
+  // Step 6: Logging
+  console.log('✅ Sheet sync summary:');
+  console.log(`  ➕ Inserted rows: ${insertedCount}`);
+  console.log(`  ✏️ Updated rows:  ${updatedCount}`);
+  console.log(`  ⏭️ Skipped rows:   ${skippedCount}`);
 }
+
 
 export async function clearSheetData() {
   const client = await auth.getClient();
@@ -110,3 +118,5 @@ export async function clearSheetData() {
 
   console.log("🧹 Cleared all data except header.");
 }
+
+export { auth,SPREADSHEET_ID, SHEET_NAME };

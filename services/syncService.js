@@ -1,9 +1,12 @@
-const { sql, poolPromise } = require("../config/db");
-const {
-  getSheetData,
+import { sql, poolPromise } from "../config/db.js";
+import {
+  auth,
   writeSheetData,
   clearSheetData,
-} = require("./googleSheetsService");
+  SPREADSHEET_ID,
+  SHEET_NAME,
+} from "./googleSheetsService.js";
+import { getSheetClient } from "./googleSheetsService.js";
 
 // Helper: Parse dates safely
 function parseDate(dateStr) {
@@ -12,14 +15,29 @@ function parseDate(dateStr) {
   return isNaN(date.getTime()) ? null : date;
 }
 
-async function syncFromGoogleToSQL() {
+export async function syncFromGoogleToSQL(spreadsheetId, sheetName) {
   try {
-    const rows = await getSheetData();
+    const sheets = await getSheetClient();
+     const range = `${sheetName}!A1:G`;
+       console.log("🔍 Syncing sheet range:", range);
+        const res = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range,
+        });
+
+    const rows = res.data.values;
+    if (!rows || rows.length === 0) {
+    console.log("No data found in Google Sheet.");
+    return;
+  }
     const pool = await poolPromise;
 
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (!row[1]) continue; // Skip empty titles
+      if (!row[1]) {
+        console.log(`Skipping row ${i} - Empty Title`);
+        continue;
+      }
 
       const SongID = row[0] && !isNaN(row[0]) ? parseInt(row[0]) : null;
       const Title = row[1];
@@ -28,6 +46,16 @@ async function syncFromGoogleToSQL() {
       const PlaylistName = row[4] || "";
       const IsDownloaded = row[5] || "No";
       const DateAdded = parseDate(row[6]) || new Date();
+
+      console.log(`Processing row ${i}:`, {
+        SongID,
+        Title,
+        Artist,
+        Album,
+        PlaylistName,
+        IsDownloaded,
+        DateAdded,
+      });
 
       const request = pool
         .request()
@@ -38,34 +66,39 @@ async function syncFromGoogleToSQL() {
         .input("IsDownloaded", sql.NVarChar, IsDownloaded)
         .input("DateAdded", sql.DateTime, DateAdded);
 
+      let query;
+
       if (SongID !== null) {
         request.input("SongID", sql.Int, SongID);
-      } else {
-        request.input("SongID", sql.Int, -1); // Use -1 to force INSERT if SongID missing
-      }
 
-      await request.query(`
+        query = `
           MERGE Songs AS Target
-        USING (SELECT @SongID AS SongID) AS Source
-        ON Target.SongID = Source.SongID
+          USING (SELECT @SongID AS SongID) AS Source
+          ON Target.SongID = Source.SongID
           WHEN MATCHED THEN
-          UPDATE SET Title = @Title, Artist = @Artist, Album = @Album,
+            UPDATE SET Title = @Title, Artist = @Artist, Album = @Album,
                        PlaylistName = @PlaylistName, IsDownloaded = @IsDownloaded,
-                       DateAdded = @DateAdded
-          WHEN NOT MATCHED THEN
-            INSERT (Title, Artist, Album, PlaylistName, IsDownloaded, DateAdded)
-            VALUES (@Title, @Artist, @Album, @PlaylistName, @IsDownloaded, @DateAdded);
-        `);
+                       DateAdded = @DateAdded;
+        `;
+      } else {
+        query = `
+          INSERT INTO Songs (Title, Artist, Album, PlaylistName, IsDownloaded, DateAdded)
+          VALUES (@Title, @Artist, @Album, @PlaylistName, @IsDownloaded, @DateAdded);
+        `;
+      }
+      console.log("Executing SQL query:", query);
+      debugger;
+      await request.query(query);
     }
 
-    console.log("✅ Synced from Google Sheet to SQL Server");
+    console.log("✅ Synced from Google Sheet to SQL Server:", rows.length);
   } catch (err) {
     console.error("❌ Error syncing from Google to SQL:", err);
     throw err;
   }
 }
 
-async function syncFromSQLToGoogle() {
+export async function syncFromSQLToGoogle() {
   try {
     const pool = await poolPromise;
     const result = await pool
@@ -97,4 +130,12 @@ async function syncFromSQLToGoogle() {
   }
 }
 
-module.exports = { syncFromGoogleToSQL, syncFromSQLToGoogle };
+export async function clearSheet() {
+  try {
+    await clearSheetData();
+  } catch (error) {
+    console.error("❌ Error clearing sheet:", error);
+    return { error: "Failed to clear sheet." };
+  }
+}
+

@@ -1,9 +1,17 @@
-const express = require("express");
-const router = express.Router();
-const {
+import express from 'express';
+import {
   syncFromGoogleToSQL,
   syncFromSQLToGoogle,
-} = require("../services/syncService");
+  clearSheet,
+} from "../services/syncService.js";
+
+
+const spreadsheetId = process.env.SPREADSHEET_ID;
+const sheetName = process.env.SHEET_NAME || "Songs";
+
+await syncFromGoogleToSQL(spreadsheetId, sheetName);
+
+const router = express.Router();
 
 // POST: Sync from Google Sheet ➜ SQL Server
 router.post("/from-sheet", async (req, res) => {
@@ -53,4 +61,17 @@ router.get("/to-sheet", async (req, res) => {
   }
 });
 
-module.exports = router;
+// Clear Sheet
+router.post("/clear", async(req,res) => {
+  try {
+    await clearSheet();
+    res.status(200).json({message: "✅ Cleared sheet"});
+  } catch (err) {
+    console.error("❌ Clearing sheet failed :"+ err.message);
+    res
+    .status(500)
+    .json({error: "Clearing Google Sheet failed : "+err.message})
+  }
+}); 
+
+export default router;
